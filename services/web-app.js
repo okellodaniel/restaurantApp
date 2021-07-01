@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const Seneca = require('seneca');
@@ -7,7 +8,6 @@ const seneca = Seneca();
 const { ExpressOIDC } = require('@okta/oidc-middleware');
 
 const path = require('path');
-const bodyParser = require('body-parser');
 
 // setup Seneca in Microservices
 
@@ -25,8 +25,8 @@ seneca.ready(() => {
   const app = seneca.export('web/context')();
 
   app.use(express.static('public'));
-  app.use(bodyParser.json());
-  app.use(bodyParser.urlencoded());
+  app.use(express.json());
+  app.use(express.urlencoded());
 
   app.set('views', path.join(__dirname, '../public/views'));
   app.set('view engine', 'pug');
@@ -66,3 +66,103 @@ app.use(
 );
 
 app.use(oidc.router);
+
+app.get('/', ensureAuthenticated, (req, res) => {
+  let cart;
+  let restaurants;
+  const user = req.userContext.userinfo;
+  const username = req.userContext.userinfo.preferred_username;
+
+  seneca.act('role:restaurant', { cmd: 'get', userId: username }, (err, msg) => {
+    restaurants = msg;
+  }).act('role:cart', { cmd: 'get', userId: username }, (err, msg) => {
+    cart = msg;
+  }).ready(() => res.render('home', {
+    user,
+    restaurants,
+    cart,
+  }));
+});
+
+app.get('/login', (req, res) => res.render('login'));
+
+app.get('/users/logout', (req, res, next) => {
+  req.logout();
+  res.redirect('/');
+});
+
+app.get('/cart', ensureAuthenticated, (req, res) => {
+  const username = req.userContext.userinfo.preferred_username;
+  const user = req.userContext.userinfo;
+
+  seneca.act('role:cart', { cmd: 'get', userId: username }, (err, msg) => res.render('cart', {
+    user,
+    cart: msg,
+  }));
+});
+
+app.post('/cart', ensureAuthenticated, (req, res) => {
+  const username = req.userContext.userinfo.preferred_username;
+  const { restaurantId } = req.body;
+  const { itemId } = req.body;
+  let val;
+
+  seneca.act('role:restaurant', { cmd: 'item', itemId, restaurantId }, (err, msg) => { val = msg; })
+    .ready(() => {
+      seneca.act('role:cart',
+        {
+          cmd: 'add',
+          userId: username,
+          restaurantName: val.restaurant.name,
+          itemName: val.item.name,
+          itemPrice: val.item.price,
+          itemId: val.item.itemId,
+          restaurantId: val.item.restaurantId,
+        }, (err, msg) => res.send(msg).statusCode(200));
+    });
+});
+
+app.delete('/cart', ensureAuthenticated, (req, res) => {
+  const username = req.userContext.userinfo.preferred_username;
+  const { restaurantId } = req.body;
+  const { itemId } = req.body;
+
+  seneca.act('role:cart', {
+    cmd: 'remove', userId: username, restaurantId, itemId,
+  }, (err, msg) => res.send(msg).statusCode(200));
+});
+
+app.post('/order', ensureAuthenticated, (req, res) => {
+  const username = req.userContext.userinfo.preferred_username;
+  let total;
+  let result;
+
+  seneca.act('role:cart', { cmd: 'get', userId: username }, (err, msg) => {
+    total = msg.total;
+  });
+
+  seneca
+    .act('role: payment', { cmd: 'pay', total }, (err, msg) => {
+      result = msg;
+    })
+    .ready(() => {
+      if (result.success) {
+        seneca
+          .act('role: cart', { cmd: 'clear', userId: username }, () => res.redirect('/confirmation').send(302));
+      } else {
+        return res.send('Card Declined').send(200);
+      }
+    });
+});
+
+app.get('/confirmation', ensureAuthenticated, (req, res) => {
+  const username = req.userContext.userinfo.preferred_username;
+  const user = req.userContext.userinfo;
+
+  seneca.act('role:cart', { cmd: 'get', userId: username }, (err, msg) => res.render('confirmation', {
+    user,
+    cart: msg,
+  }));
+});
+
+app.listen(3000);
