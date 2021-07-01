@@ -1,3 +1,3 @@
 require('seneca')()
-.use('../lib/order')
-.listen(10204)
+  .use('../lib/order')
+  .listen(10204);
