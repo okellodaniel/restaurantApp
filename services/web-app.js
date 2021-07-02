@@ -8,6 +8,7 @@ const seneca = Seneca();
 const { ExpressOIDC } = require('@okta/oidc-middleware');
 
 const path = require('path');
+const { response } = require('express');
 
 // setup Seneca in Microservices
 
@@ -166,3 +167,10 @@ app.get('/confirmation', ensureAuthenticated, (req, res) => {
 });
 
 app.listen(3000);
+
+function ensureAuthenticated(req, res, next) {
+  if (!req.userContext) {
+    return res.status(401).redirect('../login');
+  }
+  next();
+}
