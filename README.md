@@ -1,2 +1,2 @@
 # restaurantApp
-This application was built following a Microservice Architechture, with Nodejs and Pug as the templating Engine
+This application implements the Microservice Architechture, with the Nodejs and Pug stack for implementation.
